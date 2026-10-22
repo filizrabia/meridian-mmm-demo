@@ -1,5 +1,7 @@
 # Marketing mix modeling, end to end
 
+[![CI](https://github.com/filizrabia/meridian-mmm-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/filizrabia/meridian-mmm-demo/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.10%E2%80%933.12-3776AB) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
 A marketing mix model (MMM) built step by step on synthetic weekly data where the true channel effects are known, so every answer can be checked against the truth. It covers the full workflow: fitting, out-of-sample validation, uncertainty, calibration with a lift test, and budget reallocation. A companion script fits the same data with [Google Meridian](https://github.com/google/meridian).
 
 **Start here:** [notebooks/mmm_walkthrough.ipynb](notebooks/mmm_walkthrough.ipynb) walks through the analysis as a story, from the business question to the budget recommendation.
