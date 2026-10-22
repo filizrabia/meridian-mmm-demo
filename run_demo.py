@@ -106,7 +106,35 @@ def main():
     fig.savefig(OUT / "response_curves.png")
     plt.close(fig)
 
-    # 5. Budget reallocation at the same total spend
+    # 5. Calibration with a (simulated) lift test on display
+    rng = np.random.default_rng(5)
+    lift_se = 0.12
+    lift_measured = float(ds.true_roi()["display"] + rng.normal(0, lift_se))
+    calibrated = MarketingMixModel(ds.channels).fit(df, lift_tests={"display": (lift_measured, lift_se)})
+    comp = pd.DataFrame({"true": ds.true_roi(), "uncalibrated": model.roi(df), "calibrated": calibrated.roi(df)})
+    fig, ax = plt.subplots(figsize=(6.5, 3.2))
+    ypos = np.arange(len(ds.channels))
+    ax.scatter(comp["uncalibrated"], ypos, color="#ADB5BD", s=55, label="Model only")
+    ax.scatter(comp["calibrated"], ypos, color="#3B5BDB", s=55, label="Calibrated with lift test")
+    ax.scatter(comp["true"], ypos, marker="D", color="#E8590C", s=40, label="Truth", zorder=3)
+    ax.set_yticks(ypos, ds.channels)
+    ax.invert_yaxis()
+    ax.set_xlabel("ROI (revenue per €1)")
+    ax.set_title("Calibrating display with one lift test", loc="left")
+    ax.legend(frameon=False, fontsize=8, loc="lower right")
+    fig.tight_layout()
+    fig.savefig(OUT / "calibration.png")
+    plt.close(fig)
+
+    # 6. Holdout check on the last 26 weeks
+    holdout = np.arange(len(df)) >= len(df) - 26
+    m_train = MarketingMixModel(ds.channels).fit(df, train_mask=~holdout)
+    pred, y = m_train.predict(df), df["revenue"].to_numpy()
+    mape_train = float(np.mean(np.abs(y[~holdout] - pred[~holdout]) / y[~holdout]))
+    mape_test = float(np.mean(np.abs(y[holdout] - pred[holdout]) / y[holdout]))
+
+    # 7. Budget reallocation at the same total spend, using the calibrated model
+    model = calibrated
     current = {c: float(df[c].mean()) for c in ds.channels}
     plan = model.optimize_budget(sum(current.values()), current, max_change=0.5)
     uplift = plan["optimized_revenue"].sum() / plan["current_revenue"].sum() - 1
@@ -115,12 +143,17 @@ def main():
         "## Results",
         "",
         f"Model fit: R² = {model.r2(df):.3f} on {len(df)} weeks.",
+        f"Holdout (last 26 weeks, not used for fitting): MAPE {mape_test:.2%} vs {mape_train:.2%} on training weeks.",
         "",
-        "### ROI vs ground truth",
+        "### ROI vs ground truth (model only, 90% bootstrap interval)",
         "",
         roi[["true_roi", "estimated_roi", "p05", "p95"]].round(2).to_markdown(),
         "",
-        "### Budget reallocation (same weekly budget, ±50% per channel)",
+        f"### Calibrated with a lift test on display (measured ROI {lift_measured:.2f} ± {lift_se})",
+        "",
+        comp.round(2).to_markdown(),
+        "",
+        "### Budget reallocation (calibrated model, same weekly budget, ±50% per channel)",
         "",
         plan.astype(int).to_markdown(),
         "",

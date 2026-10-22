@@ -1,8 +1,9 @@
 ## Results
 
 Model fit: R² = 0.981 on 208 weeks.
+Holdout (last 26 weeks, not used for fitting): MAPE 1.07% vs 0.97% on training weeks.
 
-### ROI vs ground truth
+### ROI vs ground truth (model only, 90% bootstrap interval)
 
 |         |   true_roi |   estimated_roi |   p05 |   p95 |
 |:--------|-----------:|----------------:|------:|------:|
@@ -11,13 +12,22 @@ Model fit: R² = 0.981 on 208 weeks.
 | social  |       1.43 |            1.46 |  1.06 |  1.72 |
 | display |       0.73 |            1.05 |  0.97 |  1.58 |
 
-### Budget reallocation (same weekly budget, ±50% per channel)
+### Calibrated with a lift test on display (measured ROI 0.63 ± 0.12)
+
+|         |   true |   uncalibrated |   calibrated |
+|:--------|-------:|---------------:|-------------:|
+| tv      |   0.96 |           1.12 |         1.13 |
+| search  |   1.75 |           1.56 |         1.56 |
+| social  |   1.43 |           1.46 |         1.44 |
+| display |   0.73 |           1.05 |         0.63 |
+
+### Budget reallocation (calibrated model, same weekly budget, ±50% per channel)
 
 |         |   current_spend |   optimized_spend |   current_revenue |   optimized_revenue |
 |:--------|----------------:|------------------:|------------------:|--------------------:|
-| tv      |           25802 |             23033 |             30616 |               28119 |
-| search  |           12993 |             14688 |             21057 |               22760 |
-| social  |            9684 |             11541 |             15046 |               16932 |
-| display |            6692 |              5910 |              7366 |                6669 |
+| tv      |           25802 |             24666 |             30800 |               29801 |
+| search  |           12993 |             15184 |             21053 |               23186 |
+| social  |            9684 |             11975 |             14842 |               17108 |
+| display |            6692 |              3346 |              4414 |                1577 |
 
-Media-driven revenue uplift at the same spend: **+0.5%**
+Media-driven revenue uplift at the same spend: **+0.8%**
