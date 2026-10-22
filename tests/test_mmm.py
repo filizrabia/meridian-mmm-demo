@@ -48,6 +48,22 @@ class ModelTests(unittest.TestCase):
         for ch in ["tv", "search", "social"]:
             self.assertLess(abs(est[ch] - true[ch]) / true[ch], 0.3, ch)
 
+    def test_lift_test_calibration_moves_roi_towards_experiment(self):
+        true = self.ds.true_roi()["display"]
+        cal = MarketingMixModel(self.ds.channels).fit(self.ds.df, lift_tests={"display": (true, 0.1)})
+        before = abs(self.model.roi(self.ds.df)["display"] - true)
+        after = abs(cal.roi(self.ds.df)["display"] - true)
+        self.assertLess(after, before)
+        self.assertLess(after, 0.1)
+
+    def test_holdout_error_is_close_to_training_error(self):
+        df = self.ds.df
+        mask = np.arange(len(df)) < len(df) - 26
+        m = MarketingMixModel(self.ds.channels).fit(df, train_mask=mask)
+        y, pred = df["revenue"].to_numpy(), m.predict(df)
+        mape = lambda sel: np.mean(np.abs(y[sel] - pred[sel]) / y[sel])  # noqa: E731
+        self.assertLess(mape(~mask), 2 * mape(mask))
+
     def test_budget_optimizer_respects_constraints(self):
         cur = {c: float(self.ds.df[c].mean()) for c in self.ds.channels}
         plan = self.model.optimize_budget(sum(cur.values()), cur, max_change=0.5)

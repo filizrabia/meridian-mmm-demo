@@ -86,26 +86,55 @@ class MarketingMixModel:
         )
 
     # ---- fitting --------------------------------------------------------
-    def fit(self, df: pd.DataFrame, target: str = "revenue", promo: str = "promo", n_starts: int = 6):
+    def fit(
+        self,
+        df: pd.DataFrame,
+        target: str = "revenue",
+        promo: str = "promo",
+        n_starts: int = 6,
+        lift_tests: dict[str, tuple[float, float]] | None = None,
+        train_mask: np.ndarray | None = None,
+    ):
+        """Fit the model.
+
+        lift_tests: optional experiment results to calibrate against, as
+            ``{channel: (measured_roi, standard_error)}``. Each one adds a penalty
+            pulling the model's ROI for that channel towards the experiment,
+            weighted by how precise the experiment was.
+        train_mask: optional boolean array; weeks marked False are left out of
+            the fit (for holdout validation) but still carry adstock forward.
+        """
         y = df[target].to_numpy(float)
         spend = df[self.channels]
-        self._spend_scale = {ch: float(spend[ch].mean()) for ch in self.channels}
+        mask = np.ones(len(df), bool) if train_mask is None else np.asarray(train_mask, bool)
+        self._spend_scale = {ch: float(spend.loc[mask, ch].mean()) for ch in self.channels}
         X_base = self._base_matrix(len(df), df[promo].to_numpy(float))
-        y_scale = float(np.std(y))
-        y_mean = float(np.mean(y))
+        y_scale = float(np.std(y[mask]))
+        y_mean = float(np.mean(y[mask]))
+        lift_tests = lift_tests or {}
+        lift_idx = [self.channels.index(c) for c in lift_tests]
+        lift_target = np.array([v[0] for v in lift_tests.values()])
+        lift_se = np.array([v[1] for v in lift_tests.values()])
+        spend_tot = spend.loc[mask].sum().to_numpy()
 
         prior_mu = np.array([np.log(y_mean * 0.1), _logit(0.4 / 0.95), 0.0, np.log(1.3)])
         prior_sd = np.array([2.0, 1.5, 0.6, 0.4])
+        n_train = int(mask.sum())
 
         def residuals(theta):
             params = self._unpack(theta)
-            media = self._media_matrix(spend, params).sum(axis=1)
+            media_mat = self._media_matrix(spend, params)
+            media = media_mat.sum(axis=1)
             # Base coefficients are linear given the media fit: solve them exactly.
-            coef, *_ = np.linalg.lstsq(X_base, y - media, rcond=None)
-            fit_res = (y - media - X_base @ coef) / y_scale
+            coef, *_ = np.linalg.lstsq(X_base[mask], (y - media)[mask], rcond=None)
+            fit_res = ((y - media - X_base @ coef) / y_scale)[mask]
             theta_mat = theta.reshape(len(self.channels), _PARAMS_PER_CHANNEL)
-            prior_res = self.prior_strength * ((theta_mat - prior_mu) / prior_sd).ravel() / np.sqrt(len(y))
-            return np.concatenate([fit_res, prior_res])
+            prior_res = self.prior_strength * ((theta_mat - prior_mu) / prior_sd).ravel() / np.sqrt(n_train)
+            parts = [fit_res, prior_res]
+            if lift_idx:
+                roi = media_mat[mask][:, lift_idx].sum(axis=0) / spend_tot[lift_idx]
+                parts.append((roi - lift_target) / lift_se)
+            return np.concatenate(parts)
 
         rng = np.random.default_rng(self.seed)
         best = None
@@ -118,9 +147,9 @@ class MarketingMixModel:
         self.theta_ = best.x
         self.params_ = self._unpack(best.x)
         media = self._media_matrix(spend, self.params_).sum(axis=1)
-        self.base_coef_, *_ = np.linalg.lstsq(X_base, y - media, rcond=None)
-        self._X_base = X_base
-        self._y = y
+        self.base_coef_, *_ = np.linalg.lstsq(X_base[mask], (y - media)[mask], rcond=None)
+        self._n_weeks = len(df)
+        self.lift_tests_ = lift_tests
         return self
 
     # ---- outputs --------------------------------------------------------
@@ -162,7 +191,7 @@ class MarketingMixModel:
             boot_df = df.copy()
             boot_df["revenue"] = fitted + boot_resid
             m = MarketingMixModel(self.channels, self.max_lag, self.prior_strength, seed=int(rng.integers(1e9)))
-            m.fit(boot_df, n_starts=2)
+            m.fit(boot_df, n_starts=2, lift_tests=self.lift_tests_)
             rois.append(m.roi(boot_df))
         rois = pd.DataFrame(rois)
         return rois.quantile([0.05, 0.5, 0.95]).T.rename(columns={0.05: "p05", 0.5: "p50", 0.95: "p95"})
